@@ -1,0 +1,413 @@
+function main(workbook: ExcelScript.Workbook) {
+  // --- Cleanup/create sheets ---
+  const sheetNames: string[] = workbook.getWorksheets().map(s => s.getName());
+  if (sheetNames.includes("SOURCE")) workbook.getWorksheet("SOURCE").delete();
+  if (sheetNames.includes("INCOMING")) workbook.getWorksheet("INCOMING").delete();
+  if (sheetNames.includes("OUTGOING")) workbook.getWorksheet("OUTGOING").delete();
+
+  const sourceSheet: ExcelScript.Worksheet = workbook.addWorksheet("SOURCE");
+  const incomingSheet: ExcelScript.Worksheet = workbook.addWorksheet("INCOMING");
+  const outgoingSheet: ExcelScript.Worksheet = workbook.addWorksheet("OUTGOING");
+
+  const activeSheet: ExcelScript.Worksheet = workbook.getActiveWorksheet();
+  const usedRange: ExcelScript.Range | undefined = activeSheet.getUsedRange();
+  if (!usedRange) throw new Error("No data found on active sheet.");
+
+  type ExcelCell = string | number | boolean | Date;
+  const values: ExcelCell[][] = usedRange.getValues();
+
+  // --- Sanitize data (booleans -> strings; null/undefined -> "") ---
+  const sanitizedValues: (string | number | Date)[][] = values.map((row) =>
+    row.map((cell) => {
+      if (typeof cell === "boolean") return cell.toString();
+      if (cell === null || cell === undefined) return "";
+      return cell as string | number | Date;
+    })
+  );
+
+  // Copy raw into SOURCE
+  sourceSheet
+    .getRange("A1")
+    .getResizedRange(sanitizedValues.length - 1, sanitizedValues[0].length - 1)
+    .setValues(sanitizedValues as (string | number | boolean | Date)[][]);
+
+  // --- Find header row (date + detail + amount/credit/debit) ---
+  let headerRowIndex: number = -1;
+  for (let i = 0; i < sanitizedValues.length; i++) {
+    const rowStrings: string[] = sanitizedValues[i].map((c) =>
+      (c ?? "").toString().toLowerCase().trim()
+    );
+    const hasDate: boolean =
+      rowStrings.some((v) => /\bdate\b/.test(v)) ||
+      rowStrings.some((v) => v.includes("transaction date") || v.includes("value date"));
+
+    const hasDetail: boolean =
+      rowStrings.some((v) =>
+        v.includes("detail") ||
+        v.includes("details") ||
+        v.includes("description") ||
+        v.includes("narration") ||
+        v.includes("particular")
+      );
+
+    const hasAmountOrCrDr: boolean =
+      rowStrings.some((v) => v.includes("amount") || v.includes("debit") || v.includes("credit"));
+
+    if (hasDate && hasDetail && hasAmountOrCrDr) { headerRowIndex = i; break; }
+  }
+  if (headerRowIndex === -1) throw new Error("Transaction history header not found.");
+
+  const headers: string[] = sanitizedValues[headerRowIndex].map((h) => (h ?? "").toString());
+  const headersLC: string[] = headers.map((h) => h.toLowerCase());
+  const allRows: (string | number | Date)[][] = sanitizedValues.slice(headerRowIndex + 1);
+
+  const findIndexLike: (...needles: string[]) => number = (...needles: string[]) =>
+    headersLC.findIndex((h) => needles.some((n) => h.includes(n)));
+
+  // Flexible column mapping
+  const dateIndex: number = findIndexLike("date", "transaction date", "value date");
+  const detailIndex: number = findIndexLike("detail", "details", "description", "narration", "particular");
+  const amountIndex: number = findIndexLike("amount", "amount (€)", "amount (eur)");
+  const creditIndex: number = findIndexLike("credit", "cr");
+  const debitIndex: number = findIndexLike("debit", "dr");
+
+  if (dateIndex === -1) throw new Error("Couldn't find a Date column.");
+  if (detailIndex === -1) throw new Error("Couldn't find a Detail/Description column.");
+  if (amountIndex === -1 && creditIndex === -1 && debitIndex === -1) {
+    throw new Error("Couldn't find Amount or Credit/Debit columns.");
+  }
+
+  // --- Number parsing (handles EU formats, €, parentheses, trailing minus) ---
+  const parseNum = (val: string | number | boolean | Date | null | undefined): number => {
+    if (typeof val === "number") return val;
+    if (typeof val === "boolean" || val === null || val === undefined) return 0;
+    if (val instanceof Date) return 0;
+
+    let s: string = val.toString().trim();
+
+    // detect parentheses or trailing minus
+    const hasParens = /^\(.*\)$/.test(s);
+    const hasTrailingMinus = /-$/.test(s);
+
+    // remove currency and spaces
+    s = s.replace(/[\s€]/g, "");
+
+    // EU decimal handling
+    if (s.includes(",") && s.includes(".")) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else if (s.includes(",") && !s.includes(".")) {
+      s = s.replace(",", ".");
+    } else {
+      s = s.replace(/,/g, "");
+    }
+
+    // strip parentheses / trailing minus before parsing
+    s = s.replace(/^\((.*)\)$/, "$1").replace(/-$/, "");
+
+    const n: number = parseFloat(s);
+    if (isNaN(n)) return 0;
+    const sign = (hasParens || hasTrailingMinus) ? -1 : 1;
+    return sign * n;
+  };
+
+  const incomingRows: (string | number | Date)[][] = [];
+  const outgoingRows: (string | number | Date)[][] = [];
+
+  for (const row of allRows) {
+    const rawDate: string | number | Date = row[dateIndex] as string | number | Date;
+    const descCell: string | number | Date = row[detailIndex] as string | number | Date;
+
+    // Coerce date written to sheet (kept as Date where possible for better sort)
+    const coercedDate: Date | string | number = coerceDateCell(rawDate);
+
+    // --- compute signed amount strictly from columns (no heuristics) ---
+    let amount: number = 0;
+    if (amountIndex !== -1) {
+      amount = parseNum(row[amountIndex] as string | number | boolean | Date | null | undefined);
+    } else {
+      const cr: number = creditIndex !== -1 ? parseNum(row[creditIndex] as string | number | boolean | Date | null | undefined) : 0;
+      const dr: number = debitIndex !== -1 ? parseNum(row[debitIndex] as string | number | boolean | Date | null | undefined) : 0;
+      amount = cr - dr; // positive => incoming, negative => outgoing
+    }
+
+    const descStr = (descCell ?? "").toString();
+
+    // Skip empty noise
+    const isDateEmpty: boolean = (rawDate === "" || rawDate === null || rawDate === undefined);
+    const isDescEmpty: boolean = (descCell === "" || descCell === null || descCell === undefined);
+    if (isDateEmpty && isDescEmpty && amount === 0) continue;
+
+    const rowOut: (string | number | Date)[] = [coerceDateCell(rawDate), descStr, amount];
+    (amount >= 0 ? incomingRows : outgoingRows).push(rowOut);
+  }
+
+  processSheet(incomingSheet, incomingRows, "INCOMING_TABLE");
+  processSheet(outgoingSheet, outgoingRows, "OUTGOING_TABLE");
+}
+
+/* ----------------------------- helpers below ----------------------------- */
+
+/** Coerce the Date cell to a Date object when possible. */
+function coerceDateCell(val: string | number | Date): string | number | Date {
+  if (val instanceof Date) return val;
+  if (typeof val === "number") {
+    const d = excelSerialToDateUTC(val);
+    return isNaN(d.getTime()) ? val : d;
+  }
+  const d = parseDateSmart(val);
+  return d ? d : val;
+}
+
+/** Excel serial -> Date using UTC math */
+function excelSerialToDateUTC(serial: number): Date {
+  const ms = (serial - 25569) * 86400 * 1000;
+  return new Date(ms);
+}
+
+/** Parse common date strings robustly; normalize to UTC midnight. */
+function parseDateSmart(s: string): Date | null {
+  const str = (s ?? "").toString().trim();
+  if (!str) return null;
+
+  // ISO yyyy-mm-dd or yyyy/mm/dd
+  let m = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) {
+    const y = +m[1], mo = +m[2], d = +m[3];
+    return new Date(Date.UTC(y, mo - 1, d));
+  }
+
+  // EU dd/mm/yyyy or dd-mm-yyyy
+  m = str.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (m) {
+    const d = +m[1], mo = +m[2], y = +m[3];
+    return new Date(Date.UTC(y, mo - 1, d));
+  }
+
+  // Fallback
+  const guess = new Date(str);
+  if (!isNaN(guess.getTime())) {
+    return new Date(Date.UTC(guess.getUTCFullYear(), guess.getUTCMonth(), guess.getUTCDate()));
+  }
+  return null;
+}
+
+function processSheet(
+  sheet: ExcelScript.Worksheet,
+  rows: (string | number | Date)[][],
+  tableName: string
+) {
+  const HEADERS: string[] = ["Date", "Detail", "Amount", "Type", "Invoice", "Counterparty"];
+  sheet.getRange("A1").getResizedRange(0, HEADERS.length - 1).setValues([HEADERS]);
+
+  if (rows.length > 0) {
+    // Write A:C in one shot
+    const acValues: (string | number | boolean | Date)[][] = rows.map(r => [r[0], r[1], r[2]]);
+    sheet.getRangeByIndexes(1, 0, rows.length, 3).setValues(acValues);
+
+    // Build D:F (Type, Invoice, Counterparty) in memory, then write once
+    const derived: (string | number | boolean | Date)[][] = [];
+    for (let i = 0; i < rows.length; i++) {
+      const detail: string = (rows[i][1] ?? "").toString();
+      const type: string = limitLength(capitalizeFirst(getTransactionType(detail.toLowerCase())), 26);
+      const invoice: string = limitLength(capitalizeFirst(extractInvoice(detail)), 26);
+      const cpRaw: string = limitLength(capitalizeFirst(extractCounterparty(detail)), 26);
+      const cp: string | number = /^\d+$/.test(cpRaw) ? Number(cpRaw) : cpRaw;
+      derived.push([type, invoice, cp]);
+    }
+    sheet.getRangeByIndexes(1, 3, rows.length, 3).setValues(derived);
+
+    // Create table over A:F
+    const tableRange: ExcelScript.Range = sheet.getRangeByIndexes(0, 0, rows.length + 1, HEADERS.length);
+    const table: ExcelScript.Table = sheet.addTable(tableRange, true);
+    try { table.setName(tableName); } catch { table.setName(tableName + "_" + Date.now()); }
+    table.getSort().apply([{ key: 0, ascending: true }]);
+  }
+
+  // Formatting
+  sheet.getRange("A:A").setNumberFormatLocal("yyyy-mm-dd");
+  const used: ExcelScript.Range | undefined = sheet.getUsedRange();
+  if (used) used.getFormat().autofitColumns();
+
+  // === Month coloring (read back actual values from the sheet) ===
+  const MAX_COLOR_ROWS: number = 3000; // keep modest to avoid slow runs
+  const rowsToColor: number = Math.min(rows.length, MAX_COLOR_ROWS);
+  if (rowsToColor > 0) {
+    // Read column A values as Excel sees them
+    const datesRange: ExcelScript.Range = sheet.getRangeByIndexes(1, 0, rowsToColor, 1);
+    const dateVals: (string | number | boolean | Date)[][] = datesRange.getValues();
+
+    for (let i = 0; i < rowsToColor; i++) {
+      const v = dateVals[i][0];
+      const month = computeMonthFromCell(v);
+      const color = month ? getMonthColor(month) : "#FFFFFF";
+      sheet.getRangeByIndexes(1 + i, 0, 1, HEADERS.length)
+        .getFormat().getFill().setColor(color);
+    }
+  }
+}
+
+/** Compute month (1..12) from what Excel actually returned: Date | number | string | boolean */
+function computeMonthFromCell(v: string | number | boolean | Date): number | null {
+  if (v instanceof Date) return v.getUTCMonth() + 1;
+  if (typeof v === "number") {
+    const d = excelSerialToDateUTC(v);
+    return isNaN(d.getTime()) ? null : d.getUTCMonth() + 1;
+  }
+  if (typeof v === "string") {
+    const d = parseDateSmart(v);
+    return d ? d.getUTCMonth() + 1 : null;
+  }
+  return null; // booleans etc.
+}
+
+function getTransactionType(detail: string): string {
+  if (!detail) return "other";
+  // cheques
+  if (/cheque.*deposit/i.test(detail)) return "cheque deposit";
+  if (/cheque.*returned/i.test(detail)) return "cheque returned fee";
+  if (/cheques returned/i.test(detail)) return "cheque returned";
+  if (/cheque/i.test(detail)) return "cheque payment";
+  // transfers
+  if (/account to account/i.test(detail)) return "account transfer";
+  if (/transfer between own accounts/i.test(detail)) return "internal transfer";
+  if (/sct inwards/i.test(detail)) return "incoming sct transfer";
+  if (/sct outwards/i.test(detail)) return "outgoing sct transfer";
+  if (/instant payments inwards/i.test(detail)) return "instant payment in";
+  if (/instant payment/i.test(detail)) return "instant payment";
+  // fees & charges
+  if (/fee/i.test(detail)) return "bank fee";
+  if (/charge/i.test(detail)) return "bank charge";
+  if (/administration fee/i.test(detail)) return "administration fee";
+  if (/standing instruction charge/i.test(detail)) return "standing instruction charge";
+  if (/standing instruction/i.test(detail)) return "standing instruction";
+  // salaries & employment
+  if (/salary/i.test(detail)) return "salary";
+  if (/employment/i.test(detail)) return "employment payment";
+  if (/stipendio|stipend/i.test(detail)) return "stipend/salary";
+  // loans & repayments
+  if (/repayment.*principal/i.test(detail)) return "loan principal repayment";
+  if (/repayment.*interest/i.test(detail)) return "loan interest repayment";
+  if (/loan/i.test(detail)) return "loan";
+  // taxes & government
+  if (/tax/i.test(detail)) return "tax payment";
+  if (/vat/i.test(detail)) return "vat payment";
+  if (/customs/i.test(detail)) return "customs payment";
+  if (/government|gov/i.test(detail)) return "government payment";
+  // atm deposits
+  if (/atm.*cash.*deposit/i.test(detail)) return "atm cash deposit";
+  // 24x7 payments
+  if (/24x7 pay/i.test(detail)) return "third party payment";
+  if (/24x7 bill/i.test(detail)) return "bill payment";
+  if (/24x7 mobile pay/i.test(detail)) return "mobile payment";
+  // direct debits
+  if (/sdd outwards/i.test(detail)) return "direct debit out";
+  // insurance
+  if (/mapfre|msv life|insurance/i.test(detail)) return "insurance payment";
+  // retail / food / hospitality
+  if (/hotel/i.test(detail)) return "hotel payment";
+  if (/catering/i.test(detail)) return "catering payment";
+  if (/butcher|food|supermarket|restaurant|eat/i.test(detail)) return "food & retail";
+  if (/retail/i.test(detail)) return "retail payment";
+  // utilities
+  if (/electricity|water|gas|utility/i.test(detail)) return "utility payment";
+  // misc
+  if (/refund/i.test(detail)) return "refund";
+  if (/deposit/i.test(detail)) return "deposit";
+  if (/withdrawal/i.test(detail)) return "withdrawal";
+  return "other";
+}
+
+function extractInvoice(detail: string): string {
+  if (!detail) return "";
+  const match: RegExpMatchArray | null = detail.match(/(invoice|inv|fatt(?:ura)?\s*nr?)\s*([0-9]+)/i);
+  return match ? `invoice ${match[2]}` : "";
+}
+
+function extractCounterparty(detail: string): string {
+  if (!detail) return "";
+
+  if (/administratio/i.test(detail)) {
+    const taxRef: RegExpMatchArray | null = detail.match(/ADMINISTRATIO\s+([0-9]+)/i);
+    if (taxRef && taxRef[1]) return taxRef[1];
+  }
+
+  let cleaned: string = detail
+    .replace(/24x7\s*pay\s*third\s*parties/gi, "")
+    .replace(/24x7\s*pay/gi, "")
+    .replace(/third\s*parties/gi, "")
+    .replace(/payment order outwards same day/gi, "")
+    .replace(/payment order outwards/gi, "")
+    .replace(/account to account transfer express deposits/gi, "")
+    .replace(/account to account transfer/gi, "")
+    .replace(/transfer between own accounts/gi, "")
+    .replace(/sct instant payments inwards/gi, "")
+    .replace(/sct inwards/gi, "")
+    .replace(/sct outwards/gi, "")
+    .replace(/standing instruction charge/gi, "")
+    .replace(/standing instruction/gi, "")
+    .replace(/administration fee/gi, "")
+    .replace(/unprocessed standing instruction charge/gi, "")
+    .replace(/sdd outwards fee/gi, "")
+    .replace(/atm cash deposit/gi, "")
+    .replace(/cheque deposit.*$/gi, "")
+    .replace(/cheque returned fee.*$/gi, "")
+    .replace(/cheque book order fee.*$/gi, "")
+    .replace(/cheque\s+\d+.*/gi, "")
+    .replace(/relation:\s*[^,]+/gi, "")
+    .replace(/reason:\s*[^,]+/gi, "")
+    .replace(/value date\s*-\s*[0-9/]+/gi, "")
+    .replace(/ref\s*:\s*[-0-9A-Za-z.]+.*$/gi, "")
+    .replace(/\s+eur\s+[0-9.,]+/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  cleaned = cleaned.split(/ref\s*:|value date|relation:/i)[0].trim();
+
+  const companySuffix: RegExpMatchArray | null = cleaned.match(
+    /\b([A-Za-z][A-Za-z &.'-]*\s(?:ltd|limited|plc|co|company))\b/i
+  );
+  if (companySuffix && companySuffix[1]) return companySuffix[1];
+
+  const eurSplit: string = cleaned.split(/\s+eur\s+/i)[0].trim();
+  if (eurSplit && eurSplit.length >= 3) cleaned = eurSplit;
+
+  const person: RegExpMatchArray | null = cleaned.match(/\b(Mr|Ms|Mrs|Dr)\.?\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\b/);
+  if (person && person[0]) return person[0];
+
+  const upperSeq: RegExpMatchArray | null = cleaned.match(/\b([A-Z][A-Z &.'-]{2,})\b/);
+  if (upperSeq && upperSeq[1]) return upperSeq[1];
+
+  const capSeq: RegExpMatchArray | null = cleaned.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,4})\b/);
+  if (capSeq && capSeq[1]) return capSeq[1];
+
+  const words: string = cleaned.split(/\s+/).slice(0, 5).join(" ").trim();
+  return words;
+}
+
+function capitalizeFirst(text: string): string {
+  if (!text) return "";
+  return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+}
+
+function limitLength(text: string, max: number): string {
+  if (!text) return "";
+  return text.length > max ? text.substring(0, max) : text;
+}
+
+function getMonthColor(month: number): string {
+  switch (month) {
+    case 1: return "#FFCCCC";
+    case 2: return "#FFE5CC";
+    case 3: return "#FFFFCC";
+    case 4: return "#E5FFCC";
+    case 5: return "#CCFFCC";
+    case 6: return "#CCFFE5";
+    case 7: return "#CCFFFF";
+    case 8: return "#CCE5FF";
+    case 9: return "#CCCCFF";
+    case 10: return "#E5CCFF";
+    case 11: return "#FFCCFF";
+    case 12: return "#FFCCE5";
+    default: return "#FFFFFF";
+  }
+}
