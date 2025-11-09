@@ -46,6 +46,7 @@ def extract_transactions_from_pdf(pdf_path: str) -> pd.DataFrame:
             # Find transaction section (starts after "Description Incoming Outgoing Amount")
             in_transactions = False
             current_transaction = None
+            previous_line = ""
             
             for i, line in enumerate(lines):
                 line = line.strip()
@@ -55,6 +56,7 @@ def extract_transactions_from_pdf(pdf_path: str) -> pd.DataFrame:
                 # Detect header row
                 if re.search(r'Description\s+Incoming\s+Outgoing\s+Amount', line, re.IGNORECASE):
                     in_transactions = True
+                    previous_line = ""
                     continue
                 
                 # Stop at end of statement or new section
@@ -63,7 +65,7 @@ def extract_transactions_from_pdf(pdf_path: str) -> pd.DataFrame:
                     continue
                 
                 if in_transactions:
-                    # Wamo transaction pattern: Date description text ...amounts
+                    # Wamo transaction pattern: Date on this line, description might be on previous line
                     # Date format: "30 September 2025" or "2 September 2025"
                     date_match = re.match(r'^(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})\s+(.+)', line)
                     
@@ -78,10 +80,17 @@ def extract_transactions_from_pdf(pdf_path: str) -> pd.DataFrame:
                         
                         date_obj = parse_date_smart(date_str)
                         
+                        # Clean transaction IDs (but preserve the amount that follows)
+                        # Pattern 1: Transaction: CARD-1234567890 (10 digits)
+                        # Pattern 2: Transaction: BALANCE_CASHBACK-uuid (36 char UUID)
+                        clean_line = re.sub(r'Transaction:\s*[A-Z_]+-[a-f0-9-]{36}', 'Transaction: [ID]', rest_of_line)
+                        clean_line = re.sub(r'Transaction:\s*[A-Z]+-\d{10}', 'Transaction: [ID]', clean_line)
+                        
                         # Try to extract amounts from the line
                         # Look for numbers at the end (balance and possibly incoming/outgoing)
                         # Pattern: ...description... -123.45 1,234.56 OR ...description... 1,234.56
-                        amounts = re.findall(r'[-]?[\d,]+\.\d{2}', rest_of_line)
+                        # Use word boundaries to avoid matching transaction IDs
+                        amounts = re.findall(r'[-]?\b(?:\d{1,3}(?:,\d{3})*|\d+)\.\d{2}\b', clean_line)
                         
                         # The last number is always the balance
                         balance = None
@@ -89,26 +98,35 @@ def extract_transactions_from_pdf(pdf_path: str) -> pd.DataFrame:
                         outgoing = None
                         
                         if amounts:
-                            # Last amount is balance
+                            # Last amount is balance (always shown)
                             balance = parse_number(amounts[-1])
                             
-                            # If there are 2 amounts, check which one is incoming/outgoing
+                            # If there are 2 amounts, the first one is the transaction amount
                             if len(amounts) >= 2:
-                                # Second-to-last could be incoming or outgoing
-                                second_amount = parse_number(amounts[-2])
+                                # Second-to-last is the transaction amount
+                                transaction_amount = parse_number(amounts[-2])
                                 
-                                # Wamo shows positive for incoming, with minus sign for outgoing
+                                # Determine if incoming or outgoing by comparing balances
+                                # If amount is negative in the PDF, it's outgoing
                                 if amounts[-2].startswith('-'):
-                                    outgoing = abs(second_amount)
+                                    outgoing = abs(transaction_amount)
                                 else:
-                                    incoming = abs(second_amount)
+                                    # Could be incoming OR outgoing (check balance change)
+                                    # For now, treat positive as incoming
+                                    incoming = abs(transaction_amount)
                         
-                        # Extract description (text before amounts)
-                        # Remove all amount patterns from the line
-                        description = rest_of_line
+                        # Build description: use previous line (if available) + cleaned current line details
+                        # The previous line often contains the main description
+                        if previous_line and not re.match(r'^\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)', previous_line):
+                            description = previous_line + ' '
+                        else:
+                            description = ''
+                        
+                        # Add details from current line (after removing amounts)
+                        desc_part = clean_line
                         for amt in amounts:
-                            description = description.replace(amt, '')
-                        description = description.strip()
+                            desc_part = desc_part.replace(amt, '')
+                        description += desc_part.strip()
                         
                         current_transaction = {
                             'Date': date_obj,
@@ -117,34 +135,10 @@ def extract_transactions_from_pdf(pdf_path: str) -> pd.DataFrame:
                             'outgoing': outgoing,
                             'balance': balance
                         }
-                    
-                    elif current_transaction:
-                        # Continuation of previous transaction description
-                        # Look for amounts on this line
-                        amounts = re.findall(r'[-]?[\d,]+\.\d{2}', line)
-                        
-                        if amounts:
-                            # This line might have the amounts we missed
-                            balance = parse_number(amounts[-1])
-                            current_transaction['balance'] = balance
-                            
-                            if len(amounts) >= 2:
-                                second_amount = parse_number(amounts[-2])
-                                if amounts[-2].startswith('-'):
-                                    current_transaction['outgoing'] = abs(second_amount)
-                                else:
-                                    current_transaction['incoming'] = abs(second_amount)
-                            
-                            # Remove amounts from line and add to description
-                            desc_part = line
-                            for amt in amounts:
-                                desc_part = desc_part.replace(amt, '')
-                            desc_part = desc_part.strip()
-                            if desc_part:
-                                current_transaction['description'] += ' ' + desc_part
-                        else:
-                            # Pure description continuation
-                            current_transaction['description'] += ' ' + line
+                        previous_line = ""  # Reset since we used it
+                    else:
+                        # No date match - this might be a description line for the next transaction
+                        previous_line = line
             
             # Add last transaction
             if current_transaction and current_transaction.get('description'):
