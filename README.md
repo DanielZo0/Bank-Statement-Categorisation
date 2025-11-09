@@ -1,20 +1,22 @@
-# Bank Statement Categorization Tools
+# Bank Statement Categorization Tool
 
-Python scripts to automatically categorize transactions from bank statements. This replicates Excel-based categorization logic with automated processing.
+Automated transaction categorization tool for bank statements. Processes PDF and CSV statements with intelligent categorization and professional Excel formatting.
 
-## Supported Banks
+## Supported Formats
 
-- **Wamo** (Wise) - PDF statements
-- **Bank of Valletta (BoV)** - CSV statements
+- **PDF statements** - Automatically extracts and parses transaction data
+- **CSV statements** - Processes exported CSV bank statements
 
 ## Features
 
-- Extracts transactions from Wamo PDF bank statements
-- Automatically categorizes transactions by type (transfers, fees, salaries, etc.)
-- Extracts invoice numbers and counterparty information
-- Splits transactions into INCOMING and OUTGOING sheets
-- Color-codes transactions by month for easy visualization
-- Exports to Excel format with proper formatting
+- **Batch Processing** - Select and process multiple files at once
+- **Smart Categorization** - Automatically categorizes transactions by type
+- **Invoice Extraction** - Finds and extracts invoice numbers
+- **Counterparty Detection** - Identifies payees and payers
+- **Month-Based Coloring** - Visual grouping by month
+- **Professional Excel Output** - Formatted tables with filters
+- **Automatic Naming** - Output files named based on input files
+- **Same-Directory Saving** - Outputs saved alongside input files
 
 ## Installation
 
@@ -31,68 +33,72 @@ pip install -r requirements.txt
 
 ## Usage
 
-### Quick Start (Easiest Method)
+### Quick Start (Windows)
 
-**Option 1: Double-click the batch file (Windows)**
+**Double-click `Categorize Statement.bat`**
 
-Simply double-click `Categorize Statement.bat` and follow the prompts. The tool will:
-1. Let you browse for your statement file (PDF or CSV)
-2. Ask for an output filename
-3. Automatically detect and process your statement
-4. Open the result in Excel
+The tool will:
+1. Open a file selection dialog
+2. Let you select one or more statements (PDF or CSV)
+3. Automatically process all selected files
+4. Save results in the same directory as input files
+5. Offer to open the first result
 
-**Option 2: Run the unified script**
+### Command Line (All Platforms)
 
 ```bash
 python categorize_statement.py
 ```
 
-The interactive tool provides:
-- File browser dialog (GUI) to select your statement
-- Or manual file path entry
-- Automatic detection of file type (PDF/CSV)
-- Custom output filename selection
-- Summary before processing
-- Option to automatically open the result
+The tool immediately opens a file browser where you can:
+- Select a single file or multiple files (Ctrl/Cmd + Click)
+- Mix PDF and CSV files in the same batch
+- Process everything automatically
 
-### Advanced Usage (Direct Scripts)
+### Advanced: Direct Processing
 
-You can also run the individual scripts directly:
+For automation or scripting, call the processors directly:
 
-**For Wamo (Wise) PDF Statements:**
-
+**PDF Statements:**
 ```bash
-python wamo_categorization.py statement.pdf [output.xlsx]
+python wamo_categorization.py statement.pdf output.xlsx
 ```
 
-**For Bank of Valletta CSV Statements:**
-
+**CSV Statements:**
 ```bash
-python bov_categorization.py statement.csv [output.xlsx]
+python bov_categorization.py statement.csv output.xlsx
 ```
 
 ## Output
 
-Both scripts generate an Excel file with three sheets:
+Each statement generates an Excel file with three sheets:
 
-1. **SOURCE** - Raw transaction data (formatted as Excel table)
-2. **INCOMING** - Positive transactions (income) with categorization (formatted as Excel table)
-3. **OUTGOING** - Negative transactions (expenses) with categorization (formatted as Excel table)
+### Sheet Structure
 
-Each sheet includes:
-- **Date** - Transaction date (formatted as yyyy-mm-dd)
-- **Detail** - Transaction description
-- **Amount** - Transaction amount (formatted as currency with proper number formatting)
-- **Type** - Auto-categorized transaction type
-- **Invoice** - Extracted invoice numbers
-- **Counterparty** - Extracted payee/payer names
+1. **SOURCE** - Raw transaction data
+   - Date, Detail, Amount
+   - Formatted as sortable Excel table
+
+2. **INCOMING** - Income transactions with categorization
+   - Date, Detail, Amount, Type, Invoice, Counterparty
+   - Automatically categorized and analyzed
+
+3. **OUTGOING** - Expense transactions with categorization
+   - Date, Detail, Amount, Type, Invoice, Counterparty
+   - Automatically categorized and analyzed
 
 ### Formatting Features
-- All data ranges are formatted as proper Excel tables with filters
-- Rows are color-coded by month for easy visual grouping (12 distinct colors)
-- Date column: yyyy-mm-dd format
-- Amount column: Currency format with thousands separators (#,##0.00)
-- Auto-adjusted column widths for optimal readability
+
+- ✓ Professional Excel tables with built-in filters
+- ✓ Month-based row coloring (12 distinct colors)
+- ✓ Currency formatting with thousands separators
+- ✓ Date formatting (yyyy-mm-dd)
+- ✓ Auto-sized columns for readability
+- ✓ Clean, consistent styling
+
+### Output Location
+
+Files are automatically saved as `categorized_[original_name].xlsx` in the same directory as the input file.
 
 ## Transaction Categories
 
@@ -109,63 +115,76 @@ The script automatically recognizes and categorizes:
 - Utility payments
 - And more...
 
-## Examples
+## Example
 
-### Wamo Statement Processing
+### Batch Processing Multiple Files
 
-```bash
-python wamo_categorization.py statement_7068982_EUR_2025-06-01_2025-09-30.pdf output.xlsx
+1. Double-click `Categorize Statement.bat`
+2. Select multiple statement files (hold Ctrl)
+3. Watch the tool process each file:
+
 ```
+============================================================
+  BANK STATEMENT CATEGORIZATION TOOL
+============================================================
 
-Output:
-```
-Processing: statement_7068982_EUR_2025-06-01_2025-09-30.pdf
+Select one or more statement files (PDF or CSV)
+Hold Ctrl/Cmd to select multiple files
+
+3 file(s) selected
+============================================================
+
+[1/3] Processing: statement_Q3_2025.pdf
+  Type: PDF
+  Output: categorized_statement_Q3_2025.xlsx
+------------------------------------------------------------
+Processing: statement_Q3_2025.pdf
 Extracting transactions from PDF...
 Found 59 transactions
 Categorizing transactions...
   Incoming: 10 transactions
   Outgoing: 49 transactions
 Exporting to Excel...
-Excel file created: output.xlsx
+Excel file created: categorized_statement_Q3_2025.xlsx
+Complete! Output saved to: categorized_statement_Q3_2025.xlsx
+  [OK] Completed successfully
 
-Complete! Output saved to: output.xlsx
-```
-
-The script successfully:
-- Extracted 59 transactions from a 4-page Wamo PDF statement
-- Identified 10 incoming transactions (payments received, cashback)
-- Identified 49 outgoing transactions (card payments, transfers, fees)
-- Categorized all transactions by type
-- Extracted counterparty information (merchants, recipients)
-- Applied month-based color coding for easy visual analysis
-
-### Bank of Valletta Statement Processing
-
-```bash
-python bov_categorization.py statement_BOV.csv bov_output.xlsx
-```
-
-Output:
-```
-Processing: statement_BOV.csv
+[2/3] Processing: statement_export.csv
+  Type: CSV
+  Output: categorized_statement_export.xlsx
+------------------------------------------------------------
+Processing: statement_export.csv
 Extracting transactions from CSV...
 Found 338 transactions
 Categorizing transactions...
   Incoming: 169 transactions
   Outgoing: 169 transactions
 Exporting to Excel...
-Excel file created: bov_output.xlsx
+Excel file created: categorized_statement_export.xlsx
+Complete! Output saved to: categorized_statement_export.xlsx
+  [OK] Completed successfully
 
-Complete! Output saved to: bov_output.xlsx
+[3/3] Processing: july_statement.pdf
+  Type: PDF
+  Output: categorized_july_statement.xlsx
+------------------------------------------------------------
+  [OK] Completed successfully
+
+============================================================
+  PROCESSING COMPLETE
+============================================================
+
+Successful: 3
+Failed: 0
+Total: 3
+
+Generated files:
+  - C:\Statements\categorized_statement_Q3_2025.xlsx
+  - C:\Statements\categorized_statement_export.xlsx
+  - C:\Statements\categorized_july_statement.xlsx
+
+Would you like to open the first output file? (Y/n):
 ```
-
-The script successfully:
-- Extracted 338 transactions from BoV CSV export
-- Identified 169 incoming transactions (cheque deposits, SCT transfers, payments received)
-- Identified 169 outgoing transactions (cheques, transfers, fees, 24x7 payments)
-- Categorized all transactions by type
-- Extracted counterparty information from transaction details
-- Created formatted Excel tables with month-based color coding
 
 ## Requirements
 
@@ -174,6 +193,27 @@ The script successfully:
 - PyPDF2
 - xlsxwriter
 - openpyxl
+
+## Project Structure
+
+```
+├── categorize_statement.py      # Main UI - batch file selector
+├── Categorize Statement.bat      # Windows launcher
+├── common_categorization.py      # Shared categorization logic
+├── wamo_categorization.py        # PDF statement processor
+├── bov_categorization.py         # CSV statement processor
+├── requirements.txt              # Python dependencies
+└── README.md                     # This file
+```
+
+## Key Features
+
+- **Modular Design** - Shared logic in common module
+- **Batch Processing** - Process multiple files at once
+- **Zero Configuration** - Just select files and go
+- **Auto-Naming** - Output files named intelligently
+- **Same-Directory Output** - Results saved with input files
+- **Professional Formatting** - Excel tables, colors, proper types
 
 ## License
 
