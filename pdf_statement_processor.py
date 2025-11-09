@@ -212,6 +212,21 @@ def process_transactions(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
         transactions_df['Counterparty'] = transactions_df['Counterparty'].apply(
             lambda x: int(x) if str(x).isdigit() else x
         )
+        
+        # Add new accounting columns
+        transactions_df['Account Reference'] = ''
+        transactions_df['Nominal A/C Ref'] = ''
+        transactions_df['Department Code'] = ''
+        transactions_df['reference'] = ''
+        transactions_df['Details'] = transactions_df['Detail']
+        transactions_df['Net Amount'] = transactions_df['Amount'].abs()
+        transactions_df['Tax Code'] = 'T9'
+        transactions_df['Tax Amount'] = 0.00
+        transactions_df['Exchange Rate'] = ''
+        transactions_df['Extra Reference'] = ''
+        transactions_df['User Name'] = ''
+        transactions_df['Project Refn'] = ''
+        transactions_df['Cost Code Refn'] = ''
     
     # Sort by date
     incoming = incoming.sort_values('Date').reset_index(drop=True)
@@ -262,25 +277,45 @@ def export_to_excel(source_df: pd.DataFrame, incoming_df: pd.DataFrame,
         
         # Write and format INCOMING sheet
         if not incoming_df.empty:
-            incoming_df.to_excel(writer, sheet_name='INCOMING', index=False, startrow=0)
+            # Reorder columns for output
+            column_order = [
+                'Type', 'Account Reference', 'Nominal A/C Ref', 'Department Code',
+                'Date', 'reference', 'Details', 'Net Amount', 'Tax Code', 'Tax Amount',
+                'Exchange Rate', 'Extra Reference', 'User Name', 'Project Refn',
+                'Cost Code Refn', 'Invoice', 'Counterparty'
+            ]
+            incoming_output = incoming_df[column_order].copy()
+            incoming_output.to_excel(writer, sheet_name='INCOMING', index=False, startrow=0)
             worksheet_incoming = writer.sheets['INCOMING']
             
-            last_row = len(incoming_df)
-            worksheet_incoming.add_table(0, 0, last_row, 5, {
+            last_row = len(incoming_output)
+            num_cols = len(column_order) - 1  # 0-indexed
+            worksheet_incoming.add_table(0, 0, last_row, num_cols, {
                 'name': 'INCOMING_TABLE',
                 'style': 'Table Style Medium 9',
                 'columns': [
-                    {'header': 'Date', 'format': date_format},
-                    {'header': 'Detail'},
-                    {'header': 'Amount', 'format': currency_format},
                     {'header': 'Type'},
+                    {'header': 'Account Reference'},
+                    {'header': 'Nominal A/C Ref'},
+                    {'header': 'Department Code'},
+                    {'header': 'Date', 'format': date_format},
+                    {'header': 'reference'},
+                    {'header': 'Details'},
+                    {'header': 'Net Amount', 'format': currency_format},
+                    {'header': 'Tax Code'},
+                    {'header': 'Tax Amount', 'format': currency_format},
+                    {'header': 'Exchange Rate'},
+                    {'header': 'Extra Reference'},
+                    {'header': 'User Name'},
+                    {'header': 'Project Refn'},
+                    {'header': 'Cost Code Refn'},
                     {'header': 'Invoice'},
                     {'header': 'Counterparty'}
                 ]
             })
             
             # Apply month-based row colors
-            for idx, row in incoming_df.iterrows():
+            for idx, row in incoming_output.iterrows():
                 if pd.notna(row['Date']):
                     month = row['Date'].month
                     color = MONTH_COLORS.get(month, "#FFFFFF")
@@ -298,46 +333,77 @@ def export_to_excel(source_df: pd.DataFrame, incoming_df: pd.DataFrame,
                     
                     # Apply formatting to data rows (skip header)
                     excel_row = idx + 1
-                    worksheet_incoming.write(excel_row, 0, row['Date'], date_cell_format)
-                    worksheet_incoming.write(excel_row, 1, row['Detail'], text_cell_format)
-                    worksheet_incoming.write(excel_row, 2, row['Amount'], currency_cell_format)
-                    worksheet_incoming.write(excel_row, 3, row['Type'], text_cell_format)
-                    worksheet_incoming.write(excel_row, 4, row['Invoice'], text_cell_format)
-                    worksheet_incoming.write(excel_row, 5, row['Counterparty'], text_cell_format)
+                    for col_idx, col_name in enumerate(column_order):
+                        if col_name == 'Date':
+                            worksheet_incoming.write(excel_row, col_idx, row[col_name], date_cell_format)
+                        elif col_name in ['Net Amount', 'Tax Amount']:
+                            worksheet_incoming.write(excel_row, col_idx, row[col_name], currency_cell_format)
+                        else:
+                            worksheet_incoming.write(excel_row, col_idx, row[col_name], text_cell_format)
             
             # Set column widths
-            worksheet_incoming.set_column('A:A', 12)
-            worksheet_incoming.set_column('B:B', 50)
-            worksheet_incoming.set_column('C:C', 15)
-            worksheet_incoming.set_column('D:D', 26)
-            worksheet_incoming.set_column('E:E', 26)
-            worksheet_incoming.set_column('F:F', 26)
+            worksheet_incoming.set_column('A:A', 20)  # Type
+            worksheet_incoming.set_column('B:B', 18)  # Account Reference
+            worksheet_incoming.set_column('C:C', 18)  # Nominal A/C Ref
+            worksheet_incoming.set_column('D:D', 18)  # Department Code
+            worksheet_incoming.set_column('E:E', 12)  # Date
+            worksheet_incoming.set_column('F:F', 15)  # reference
+            worksheet_incoming.set_column('G:G', 40)  # Details
+            worksheet_incoming.set_column('H:H', 15)  # Net Amount
+            worksheet_incoming.set_column('I:I', 12)  # Tax Code
+            worksheet_incoming.set_column('J:J', 12)  # Tax Amount
+            worksheet_incoming.set_column('K:K', 15)  # Exchange Rate
+            worksheet_incoming.set_column('L:L', 18)  # Extra Reference
+            worksheet_incoming.set_column('M:M', 15)  # User Name
+            worksheet_incoming.set_column('N:N', 15)  # Project Refn
+            worksheet_incoming.set_column('O:O', 15)  # Cost Code Refn
+            worksheet_incoming.set_column('P:P', 20)  # Invoice
+            worksheet_incoming.set_column('Q:Q', 26)  # Counterparty
         else:
             # Create empty sheet with headers
-            empty_df = pd.DataFrame(columns=['Date', 'Detail', 'Amount', 'Type', 'Invoice', 'Counterparty'])
+            empty_df = pd.DataFrame(columns=[
+                'Type', 'Account Reference', 'Nominal A/C Ref', 'Department Code',
+                'Date', 'reference', 'Details', 'Net Amount', 'Tax Code', 'Tax Amount',
+                'Exchange Rate', 'Extra Reference', 'User Name', 'Project Refn',
+                'Cost Code Refn', 'Invoice', 'Counterparty'
+            ])
             empty_df.to_excel(writer, sheet_name='INCOMING', index=False)
         
         # Write and format OUTGOING sheet
         if not outgoing_df.empty:
-            outgoing_df.to_excel(writer, sheet_name='OUTGOING', index=False, startrow=0)
+            # Reorder columns for output (same as incoming)
+            outgoing_output = outgoing_df[column_order].copy()
+            outgoing_output.to_excel(writer, sheet_name='OUTGOING', index=False, startrow=0)
             worksheet_outgoing = writer.sheets['OUTGOING']
             
-            last_row = len(outgoing_df)
-            worksheet_outgoing.add_table(0, 0, last_row, 5, {
+            last_row = len(outgoing_output)
+            num_cols = len(column_order) - 1  # 0-indexed
+            worksheet_outgoing.add_table(0, 0, last_row, num_cols, {
                 'name': 'OUTGOING_TABLE',
                 'style': 'Table Style Medium 4',
                 'columns': [
-                    {'header': 'Date', 'format': date_format},
-                    {'header': 'Detail'},
-                    {'header': 'Amount', 'format': currency_format},
                     {'header': 'Type'},
+                    {'header': 'Account Reference'},
+                    {'header': 'Nominal A/C Ref'},
+                    {'header': 'Department Code'},
+                    {'header': 'Date', 'format': date_format},
+                    {'header': 'reference'},
+                    {'header': 'Details'},
+                    {'header': 'Net Amount', 'format': currency_format},
+                    {'header': 'Tax Code'},
+                    {'header': 'Tax Amount', 'format': currency_format},
+                    {'header': 'Exchange Rate'},
+                    {'header': 'Extra Reference'},
+                    {'header': 'User Name'},
+                    {'header': 'Project Refn'},
+                    {'header': 'Cost Code Refn'},
                     {'header': 'Invoice'},
                     {'header': 'Counterparty'}
                 ]
             })
             
             # Apply month-based row colors
-            for idx, row in outgoing_df.iterrows():
+            for idx, row in outgoing_output.iterrows():
                 if pd.notna(row['Date']):
                     month = row['Date'].month
                     color = MONTH_COLORS.get(month, "#FFFFFF")
@@ -355,23 +421,40 @@ def export_to_excel(source_df: pd.DataFrame, incoming_df: pd.DataFrame,
                     
                     # Apply formatting to data rows (skip header)
                     excel_row = idx + 1
-                    worksheet_outgoing.write(excel_row, 0, row['Date'], date_cell_format)
-                    worksheet_outgoing.write(excel_row, 1, row['Detail'], text_cell_format)
-                    worksheet_outgoing.write(excel_row, 2, row['Amount'], currency_cell_format)
-                    worksheet_outgoing.write(excel_row, 3, row['Type'], text_cell_format)
-                    worksheet_outgoing.write(excel_row, 4, row['Invoice'], text_cell_format)
-                    worksheet_outgoing.write(excel_row, 5, row['Counterparty'], text_cell_format)
+                    for col_idx, col_name in enumerate(column_order):
+                        if col_name == 'Date':
+                            worksheet_outgoing.write(excel_row, col_idx, row[col_name], date_cell_format)
+                        elif col_name in ['Net Amount', 'Tax Amount']:
+                            worksheet_outgoing.write(excel_row, col_idx, row[col_name], currency_cell_format)
+                        else:
+                            worksheet_outgoing.write(excel_row, col_idx, row[col_name], text_cell_format)
             
-            # Set column widths
-            worksheet_outgoing.set_column('A:A', 12)
-            worksheet_outgoing.set_column('B:B', 50)
-            worksheet_outgoing.set_column('C:C', 15)
-            worksheet_outgoing.set_column('D:D', 26)
-            worksheet_outgoing.set_column('E:E', 26)
-            worksheet_outgoing.set_column('F:F', 26)
+            # Set column widths (same as incoming)
+            worksheet_outgoing.set_column('A:A', 20)  # Type
+            worksheet_outgoing.set_column('B:B', 18)  # Account Reference
+            worksheet_outgoing.set_column('C:C', 18)  # Nominal A/C Ref
+            worksheet_outgoing.set_column('D:D', 18)  # Department Code
+            worksheet_outgoing.set_column('E:E', 12)  # Date
+            worksheet_outgoing.set_column('F:F', 15)  # reference
+            worksheet_outgoing.set_column('G:G', 40)  # Details
+            worksheet_outgoing.set_column('H:H', 15)  # Net Amount
+            worksheet_outgoing.set_column('I:I', 12)  # Tax Code
+            worksheet_outgoing.set_column('J:J', 12)  # Tax Amount
+            worksheet_outgoing.set_column('K:K', 15)  # Exchange Rate
+            worksheet_outgoing.set_column('L:L', 18)  # Extra Reference
+            worksheet_outgoing.set_column('M:M', 15)  # User Name
+            worksheet_outgoing.set_column('N:N', 15)  # Project Refn
+            worksheet_outgoing.set_column('O:O', 15)  # Cost Code Refn
+            worksheet_outgoing.set_column('P:P', 20)  # Invoice
+            worksheet_outgoing.set_column('Q:Q', 26)  # Counterparty
         else:
             # Create empty sheet with headers
-            empty_df = pd.DataFrame(columns=['Date', 'Detail', 'Amount', 'Type', 'Invoice', 'Counterparty'])
+            empty_df = pd.DataFrame(columns=[
+                'Type', 'Account Reference', 'Nominal A/C Ref', 'Department Code',
+                'Date', 'reference', 'Details', 'Net Amount', 'Tax Code', 'Tax Amount',
+                'Exchange Rate', 'Extra Reference', 'User Name', 'Project Refn',
+                'Cost Code Refn', 'Invoice', 'Counterparty'
+            ])
             empty_df.to_excel(writer, sheet_name='OUTGOING', index=False)
     
     print(f"Excel file created: {output_path}")
