@@ -25,36 +25,21 @@ def select_files():
     
     root = Tk()
     root.withdraw()  # Hide the main window
+    root.attributes('-topmost', True)  # Bring dialog to front
     
-    # Force focus to ensure dialog appears on top
-    root.lift()
-    root.attributes('-topmost', True)
-    root.after_idle(root.attributes, '-topmost', False)
-    root.focus_force()
+    file_paths = filedialog.askopenfilenames(
+        title="Select Bank Statement Files",
+        filetypes=[
+            ("All Supported Files", "*.pdf *.csv"),
+            ("PDF Files", "*.pdf"),
+            ("CSV Files", "*.csv"),
+            ("All Files", "*.*")
+        ]
+    )
     
-    try:
-        file_paths = filedialog.askopenfilenames(
-            title="Select Bank Statement Files (or Cancel to exit)",
-            filetypes=[
-                ("All Supported Files", "*.pdf *.csv"),
-                ("PDF Files", "*.pdf"),
-                ("CSV Files", "*.csv"),
-                ("All Files", "*.*")
-            ],
-            parent=root
-        )
-    finally:
-        # Ensure cleanup happens no matter what
-        try:
-            root.quit()
-            root.update()
-            root.destroy()
-        except:
-            pass
+    root.destroy()
     
-    # Convert to list and return (empty list if cancelled)
-    result = list(file_paths) if file_paths else []
-    return result
+    return list(file_paths) if file_paths else []
 
 
 def detect_file_type(file_path):
@@ -132,7 +117,7 @@ def main():
             else:
                 print("\nInvalid file path(s) provided.")
                 input("\nPress Enter to exit...")
-                sys.exit(0)
+                return
         else:
             # No arguments - open file dialog
             statement_paths = select_files()
@@ -140,7 +125,7 @@ def main():
             if not statement_paths:
                 print("\nNo files selected. Exiting.")
                 input("\nPress Enter to exit...")
-                sys.exit(0)
+                return
         
         print(f"\n{len(statement_paths)} file(s) selected")
         print("="*60)
@@ -216,32 +201,14 @@ def main():
             except Exception as e:
                 print(f"Could not open file location: {e}")
         
-        # Ensure clean exit
-        sys.exit(0)
-        
     except KeyboardInterrupt:
         print("\n\nInterrupted by user.")
-        sys.exit(0)
     except Exception as e:
         print(f"\nUnexpected error: {e}")
         import traceback
         traceback.print_exc()
         input("\nPress Enter to exit...")
-        sys.exit(1)
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except SystemExit:
-        # Clean exit requested
-        pass
-    except Exception as e:
-        print(f"\nFatal error: {e}")
-        import traceback
-        traceback.print_exc()
-        input("\nPress Enter to exit...")
-    finally:
-        # Force exit to prevent any loops
-        import os
-        os._exit(0)
+    main()
