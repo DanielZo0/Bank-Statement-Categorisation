@@ -18,12 +18,14 @@ def select_files():
     root = Tk()
     root.withdraw()  # Hide the main window
     root.attributes('-topmost', True)  # Bring dialog to front
+    root.update()  # Force window update
     
     print("\n" + "="*60)
-    print("  BANK STATEMENT CATEGORIZATION TOOL")
+    print("  BANK STATEMENT CATEGORISATION TOOL")
     print("="*60)
     print("\nSelect one or more statement files (PDF or CSV)")
     print("Hold Ctrl/Cmd to select multiple files")
+
     
     file_paths = filedialog.askopenfilenames(
         title="Select Bank Statement Files",
@@ -32,11 +34,17 @@ def select_files():
             ("PDF Files", "*.pdf"),
             ("CSV Files", "*.csv"),
             ("All Files", "*.*")
-        ]
+        ],
+        parent=root
     )
     
+    # Ensure proper cleanup
+    root.update_idletasks()
     root.destroy()
-    return list(file_paths) if file_paths else []
+    
+    # Convert to list and return
+    result = list(file_paths) if file_paths else []
+    return result
 
 
 def detect_file_type(file_path):
@@ -107,10 +115,14 @@ def main():
         if not statement_paths:
             print("\nNo files selected. Exiting.")
             input("\nPress Enter to exit...")
-            return
+            sys.exit(0)
         
         print(f"\n{len(statement_paths)} file(s) selected")
         print("="*60)
+        
+        # Debug: Show selected files
+        for path in statement_paths:
+            print(f"  - {Path(path).name}")
         
         successful = 0
         failed = 0
@@ -179,8 +191,11 @@ def main():
             except Exception as e:
                 print(f"Could not open file location: {e}")
         
+        # Ensure clean exit
+        sys.exit(0)
+        
     except KeyboardInterrupt:
-        print("\n\nInterrupted by user. Goodbye!")
+        print("\n\nInterrupted by user.")
         sys.exit(0)
     except Exception as e:
         print(f"\nUnexpected error: {e}")
