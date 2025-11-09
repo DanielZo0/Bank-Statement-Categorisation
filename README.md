@@ -2,6 +2,19 @@
 
 Automated transaction categorization tool for bank statements. Processes PDF and CSV statements with intelligent categorization and professional Excel formatting.
 
+## 🚀 Quick Start - Executable Version
+
+**For Windows users who don't have Python installed:**
+
+1. Download `Bank Statement Processor.exe` from the [Releases](https://github.com/DanielZo0/Bank-Statement-Categorisation/releases) page
+2. Double-click the executable to launch
+3. Select your statement files (PDF or CSV)
+4. Done! Excel outputs are automatically created
+
+No installation required - just download and run!
+
+See `EXECUTABLE_README.txt` for detailed executable usage instructions.
+
 ## Supported Formats
 
 - **PDF statements** - Automatically extracts and parses transaction data
@@ -214,6 +227,28 @@ Would you like to open the first output file? (Y/n):
 - **Auto-Naming** - Output files named intelligently
 - **Same-Directory Output** - Results saved with input files
 - **Professional Formatting** - Excel tables, colors, proper types
+
+## Building the Executable
+
+To build the Windows executable from source:
+
+1. Install PyInstaller:
+```bash
+pip install pyinstaller
+```
+
+2. Build the executable:
+```bash
+python -m PyInstaller --clean --noconfirm build_executable.spec
+```
+
+3. The executable will be created in the `dist/` folder as `Bank Statement Processor.exe`
+
+**Build Configuration:**
+- Single-file executable (~46 MB)
+- Includes all dependencies (pandas, PyPDF2, xlsxwriter, tkinter)
+- Windows 64-bit only
+- Console application with GUI file picker
 
 ## License
 
