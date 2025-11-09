@@ -15,34 +15,44 @@ def select_files():
     """
     Open a file selection dialog to choose statement files (supports multiple)
     """
-    root = Tk()
-    root.withdraw()  # Hide the main window
-    root.attributes('-topmost', True)  # Bring dialog to front
-    root.update()  # Force window update
-    
     print("\n" + "="*60)
     print("  BANK STATEMENT CATEGORISATION TOOL")
     print("="*60)
-    print("\nSelect one or more statement files (PDF or CSV)")
-    print("Hold Ctrl/Cmd to select multiple files")
-
+    print("\nOpening file selection dialog...")
+    print("Select one or more statement files (PDF or CSV)")
+    print("Hold Ctrl to select multiple files, or click Cancel to exit")
+    print("="*60)
     
-    file_paths = filedialog.askopenfilenames(
-        title="Select Bank Statement Files",
-        filetypes=[
-            ("All Supported Files", "*.pdf *.csv"),
-            ("PDF Files", "*.pdf"),
-            ("CSV Files", "*.csv"),
-            ("All Files", "*.*")
-        ],
-        parent=root
-    )
+    root = Tk()
+    root.withdraw()  # Hide the main window
     
-    # Ensure proper cleanup
-    root.update_idletasks()
-    root.destroy()
+    # Force focus to ensure dialog appears on top
+    root.lift()
+    root.attributes('-topmost', True)
+    root.after_idle(root.attributes, '-topmost', False)
+    root.focus_force()
     
-    # Convert to list and return
+    try:
+        file_paths = filedialog.askopenfilenames(
+            title="Select Bank Statement Files (or Cancel to exit)",
+            filetypes=[
+                ("All Supported Files", "*.pdf *.csv"),
+                ("PDF Files", "*.pdf"),
+                ("CSV Files", "*.csv"),
+                ("All Files", "*.*")
+            ],
+            parent=root
+        )
+    finally:
+        # Ensure cleanup happens no matter what
+        try:
+            root.quit()
+            root.update()
+            root.destroy()
+        except:
+            pass
+    
+    # Convert to list and return (empty list if cancelled)
     result = list(file_paths) if file_paths else []
     return result
 
@@ -206,4 +216,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        # Clean exit requested
+        pass
+    except Exception as e:
+        print(f"\nFatal error: {e}")
+        import traceback
+        traceback.print_exc()
+        input("\nPress Enter to exit...")
+    finally:
+        # Force exit to prevent any loops
+        import os
+        os._exit(0)
