@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Wamo Bank Statement Categorization Script
-Replicates Excel categorization logic for Wamo bank statements
+Bank of Valletta Statement Categorization Script
+Processes BoV CSV statements and categorizes transactions
 """
 
 import re
 import pandas as pd
 from datetime import datetime
 from typing import List, Tuple, Optional
-import PyPDF2
 from pathlib import Path
 import sys
 
@@ -25,37 +24,30 @@ MONTH_COLORS = {
 def parse_number(val: str) -> float:
     """
     Parse number from various formats (EU/US, with currency symbols, parentheses, etc.)
-    Handles: €1,234.56, (123.45), 123-, 1.234,56
+    Handles: €1,234.56, (123.45), 123-, 1.234,56, "1,234.56"
     """
     if not val or not isinstance(val, str):
         return 0.0
     
-    val = str(val).strip()
+    val = str(val).strip().strip('"')
     
     # Detect negative indicators
     has_parens = re.match(r'^\(.*\)$', val)
     has_trailing_minus = val.endswith('-')
+    is_negative = val.startswith('-')
     
     # Remove currency symbols and spaces
     val = re.sub(r'[\s€$£]', '', val)
     
-    # Handle EU decimal format (1.234,56 or 1234,56)
-    if ',' in val and '.' in val:
-        # EU format: 1.234,56 -> remove dots, replace comma with dot
-        val = val.replace('.', '').replace(',', '.')
-    elif ',' in val and '.' not in val:
-        # Could be EU decimal: 1234,56 -> replace comma with dot
-        val = val.replace(',', '.')
-    else:
-        # US format or no decimals
-        val = val.replace(',', '')
+    # Remove negative signs temporarily
+    val = val.replace('-', '').replace('(', '').replace(')', '')
     
-    # Remove parentheses and trailing minus
-    val = re.sub(r'[()]', '', val).replace('-', '')
+    # Handle comma as thousands separator (BoV format: 1,234.56)
+    val = val.replace(',', '')
     
     try:
         num = float(val)
-        return -num if (has_parens or has_trailing_minus) else num
+        return -num if (has_parens or has_trailing_minus or is_negative) else num
     except ValueError:
         return 0.0
 
@@ -63,36 +55,22 @@ def parse_number(val: str) -> float:
 def parse_date_smart(date_str: str) -> Optional[datetime]:
     """
     Parse date from various formats
-    Supports: yyyy-mm-dd, dd/mm/yyyy, dd-mm-yyyy, "30 September 2025", ISO formats
+    BoV uses: yyyy/mm/dd
+    Also supports: dd/mm/yyyy, dd-mm-yyyy, ISO formats
     """
     if not date_str:
         return None
     
     date_str = str(date_str).strip()
     
-    # Try Wamo format: "30 September 2025"
-    month_names = {
-        'january': 1, 'february': 2, 'march': 3, 'april': 4,
-        'may': 5, 'june': 6, 'july': 7, 'august': 8,
-        'september': 9, 'october': 10, 'november': 11, 'december': 12
-    }
-    match = re.match(r'^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$', date_str)
-    if match:
-        d = int(match[1])
-        month_name = match[2].lower()
-        y = int(match[3])
-        if month_name in month_names:
-            m = month_names[month_name]
-            return datetime(y, m, d)
-    
-    # Try ISO format yyyy-mm-dd or yyyy/mm/dd
-    match = re.match(r'^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$', date_str)
+    # Try yyyy/mm/dd (BoV format)
+    match = re.match(r'^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$', date_str)
     if match:
         y, m, d = int(match[1]), int(match[2]), int(match[3])
         return datetime(y, m, d)
     
-    # Try EU format dd/mm/yyyy or dd-mm-yyyy
-    match = re.match(r'^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$', date_str)
+    # Try dd/mm/yyyy or dd-mm-yyyy
+    match = re.match(r'^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$', date_str)
     if match:
         d, m, y = int(match[1]), int(match[2]), int(match[3])
         return datetime(y, m, d)
@@ -112,20 +90,6 @@ def get_transaction_type(detail: str) -> str:
         return "other"
     
     detail_lower = detail.lower()
-    
-    # Wamo-specific patterns
-    if re.search(r'card transaction', detail_lower):
-        return "card payment"
-    if re.search(r'sent money to', detail_lower):
-        return "outgoing transfer"
-    if re.search(r'received money from', detail_lower):
-        return "incoming transfer"
-    if re.search(r'wise charges', detail_lower):
-        return "transfer fee"
-    if re.search(r'cashback|balance_cashback', detail_lower):
-        return "cashback"
-    if re.search(r'card ending in', detail_lower):
-        return "card transaction"
     
     # Cheques
     if re.search(r'cheque.*deposit', detail_lower):
@@ -254,22 +218,6 @@ def extract_counterparty(detail: str) -> str:
     if not detail:
         return ""
     
-    # Wamo-specific patterns
-    # "Sent money to <counterparty>"
-    match = re.search(r'sent money to\s+(.+?)(?:\s+transaction:|$)', detail, re.IGNORECASE)
-    if match:
-        return match[1].strip()
-    
-    # "Received money from <counterparty>"
-    match = re.search(r'received money from\s+(.+?)(?:\s+with reference|transaction:|$)', detail, re.IGNORECASE)
-    if match:
-        return match[1].strip()
-    
-    # "Card transaction of EUR issued by <merchant>"
-    match = re.search(r'issued by\s+(.+?)(?:\s+card ending|transaction:|$)', detail, re.IGNORECASE)
-    if match:
-        return match[1].strip()
-    
     # Check for tax administration reference
     if re.search(r'administratio', detail, re.IGNORECASE):
         tax_ref = re.search(r'ADMINISTRATIO\s+([0-9]+)', detail, re.IGNORECASE)
@@ -316,7 +264,7 @@ def extract_counterparty(detail: str) -> str:
     cleaned = re.split(r'ref\s*:|value date|relation:', cleaned, flags=re.IGNORECASE)[0].strip()
     
     # Look for company suffix
-    company_match = re.search(r'\b([A-Za-z][A-Za-z &.\'-]*\s(?:ltd|limited|plc|co|company))\b', cleaned, re.IGNORECASE)
+    company_match = re.search(r'\b([A-Z][A-Za-z &.\'-]*\s(?:ltd|limited|plc|co|company))\b', cleaned, re.IGNORECASE)
     if company_match:
         return company_match[1]
     
@@ -359,166 +307,57 @@ def limit_length(text: str, max_len: int = 26) -> str:
     return text[:max_len] if len(text) > max_len else text
 
 
-def extract_transactions_from_pdf(pdf_path: str) -> pd.DataFrame:
+def extract_transactions_from_csv(csv_path: str) -> pd.DataFrame:
     """
-    Extract transaction data from Wamo PDF statement
-    Wamo format: Date | Description | Incoming | Outgoing | Balance
+    Extract transaction data from BoV CSV statement
     """
-    transactions = []
-    
     try:
-        with open(pdf_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            
-            # Extract text from all pages
-            full_text = ""
-            for page in pdf_reader.pages:
-                full_text += page.extract_text() + "\n"
-            
-            lines = full_text.split('\n')
-            
-            # Find transaction section (starts after "Description Incoming Outgoing Amount")
-            in_transactions = False
-            current_transaction = None
-            
-            for i, line in enumerate(lines):
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Detect header row
-                if re.search(r'Description\s+Incoming\s+Outgoing\s+Amount', line, re.IGNORECASE):
-                    in_transactions = True
-                    continue
-                
-                # Stop at end of statement or new section
-                if in_transactions and re.search(r'(Opening Balance|Closing Balance|Total|Page \d+)', line, re.IGNORECASE):
-                    in_transactions = False
-                    continue
-                
-                if in_transactions:
-                    # Wamo transaction pattern: Date description text ...amounts
-                    # Date format: "30 September 2025" or "2 September 2025"
-                    date_match = re.match(r'^(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})\s+(.+)', line)
-                    
-                    if date_match:
-                        # Save previous transaction if exists
-                        if current_transaction and current_transaction.get('description'):
-                            transactions.append(current_transaction)
-                        
-                        # Start new transaction
-                        date_str = date_match.group(1)
-                        rest_of_line = date_match.group(2)
-                        
-                        date_obj = parse_date_smart(date_str)
-                        
-                        # Try to extract amounts from the line
-                        # Look for numbers at the end (balance and possibly incoming/outgoing)
-                        # Pattern: ...description... -123.45 1,234.56 OR ...description... 1,234.56
-                        amounts = re.findall(r'[-]?[\d,]+\.\d{2}', rest_of_line)
-                        
-                        # The last number is always the balance
-                        balance = None
-                        incoming = None
-                        outgoing = None
-                        
-                        if amounts:
-                            # Last amount is balance
-                            balance = parse_number(amounts[-1])
-                            
-                            # If there are 2 amounts, check which one is incoming/outgoing
-                            if len(amounts) >= 2:
-                                # Second-to-last could be incoming or outgoing
-                                second_amount = parse_number(amounts[-2])
-                                
-                                # Wamo shows positive for incoming, with minus sign for outgoing
-                                if amounts[-2].startswith('-'):
-                                    outgoing = abs(second_amount)
-                                else:
-                                    incoming = abs(second_amount)
-                        
-                        # Extract description (text before amounts)
-                        # Remove all amount patterns from the line
-                        description = rest_of_line
-                        for amt in amounts:
-                            description = description.replace(amt, '')
-                        description = description.strip()
-                        
-                        current_transaction = {
-                            'Date': date_obj,
-                            'description': description,
-                            'incoming': incoming,
-                            'outgoing': outgoing,
-                            'balance': balance
-                        }
-                    
-                    elif current_transaction:
-                        # Continuation of previous transaction description
-                        # Look for amounts on this line
-                        amounts = re.findall(r'[-]?[\d,]+\.\d{2}', line)
-                        
-                        if amounts:
-                            # This line might have the amounts we missed
-                            balance = parse_number(amounts[-1])
-                            current_transaction['balance'] = balance
-                            
-                            if len(amounts) >= 2:
-                                second_amount = parse_number(amounts[-2])
-                                if amounts[-2].startswith('-'):
-                                    current_transaction['outgoing'] = abs(second_amount)
-                                else:
-                                    current_transaction['incoming'] = abs(second_amount)
-                            
-                            # Remove amounts from line and add to description
-                            desc_part = line
-                            for amt in amounts:
-                                desc_part = desc_part.replace(amt, '')
-                            desc_part = desc_part.strip()
-                            if desc_part:
-                                current_transaction['description'] += ' ' + desc_part
-                        else:
-                            # Pure description continuation
-                            current_transaction['description'] += ' ' + line
-            
-            # Add last transaction
-            if current_transaction and current_transaction.get('description'):
-                transactions.append(current_transaction)
-            
-            # Convert to dataframe with proper Amount column
-            result = []
-            for trans in transactions:
-                date = trans.get('Date')
-                description = trans.get('description', '').strip()
-                incoming = trans.get('incoming', 0) or 0
-                outgoing = trans.get('outgoing', 0) or 0
-                
-                # Calculate signed amount (positive for incoming, negative for outgoing)
-                if incoming > 0:
-                    amount = incoming
-                elif outgoing > 0:
-                    amount = -outgoing
-                else:
-                    # No explicit incoming/outgoing, try to infer from description
-                    amount = 0
-                
-                if date and description:
-                    result.append({
-                        'Date': date,
-                        'Detail': description,
-                        'Amount': amount
-                    })
+        # Read the CSV file
+        with open(csv_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Find the transaction history header
+        transaction_start = -1
+        for i, line in enumerate(lines):
+            if 'Transaction History' in line:
+                # Next line should be the column headers
+                transaction_start = i + 2
+                break
+        
+        if transaction_start == -1:
+            print("Error: Could not find Transaction History header")
+            return pd.DataFrame()
+        
+        # Read transactions from the found position
+        df = pd.read_csv(csv_path, skiprows=transaction_start - 1, encoding='utf-8')
+        
+        # Clean column names
+        df.columns = df.columns.str.strip()
+        
+        # Ensure we have the required columns
+        if 'Date' not in df.columns or 'Detail' not in df.columns or 'Amount' not in df.columns:
+            print(f"Error: Expected columns not found. Found: {df.columns.tolist()}")
+            return pd.DataFrame()
+        
+        # Parse dates
+        df['Date'] = df['Date'].apply(parse_date_smart)
+        
+        # Parse amounts
+        df['Amount'] = df['Amount'].apply(parse_number)
+        
+        # Remove rows with no date
+        df = df[df['Date'].notna()]
+        
+        # Keep only required columns
+        df = df[['Date', 'Detail', 'Amount']].copy()
+        
+        return df
     
     except Exception as e:
-        print(f"Error reading PDF: {e}")
+        print(f"Error reading CSV: {e}")
         import traceback
         traceback.print_exc()
         return pd.DataFrame()
-    
-    if not result:
-        print("Warning: No transactions found in PDF")
-        return pd.DataFrame(columns=['Date', 'Detail', 'Amount'])
-    
-    return pd.DataFrame(result)
 
 
 def process_transactions(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -720,24 +559,24 @@ def export_to_excel(source_df: pd.DataFrame, incoming_df: pd.DataFrame,
 def main():
     """Main execution function"""
     if len(sys.argv) < 2:
-        print("Usage: python wamo_categorization.py <path_to_wamo_statement.pdf> [output.xlsx]")
+        print("Usage: python bov_categorization.py <path_to_statement.csv> [output.xlsx]")
         sys.exit(1)
     
-    pdf_path = sys.argv[1]
-    output_path = sys.argv[2] if len(sys.argv) > 2 else "categorized_statement.xlsx"
+    csv_path = sys.argv[1]
+    output_path = sys.argv[2] if len(sys.argv) > 2 else "categorized_bov_statement.xlsx"
     
-    if not Path(pdf_path).exists():
-        print(f"Error: File not found: {pdf_path}")
+    if not Path(csv_path).exists():
+        print(f"Error: File not found: {csv_path}")
         sys.exit(1)
     
-    print(f"Processing: {pdf_path}")
+    print(f"Processing: {csv_path}")
     
-    # Extract transactions from PDF
-    print("Extracting transactions from PDF...")
-    df = extract_transactions_from_pdf(pdf_path)
+    # Extract transactions from CSV
+    print("Extracting transactions from CSV...")
+    df = extract_transactions_from_csv(csv_path)
     
     if df.empty:
-        print("Error: No transactions found in PDF")
+        print("Error: No transactions found in CSV")
         sys.exit(1)
     
     print(f"Found {len(df)} transactions")

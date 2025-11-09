@@ -1,6 +1,11 @@
-# Wamo Bank Statement Categorization
+# Bank Statement Categorization Tools
 
-Python script to automatically categorize transactions from Wamo bank statements. This replicates Excel-based categorization logic with automated processing of PDF statements.
+Python scripts to automatically categorize transactions from bank statements. This replicates Excel-based categorization logic with automated processing.
+
+## Supported Banks
+
+- **Wamo** (Wise) - PDF statements
+- **Bank of Valletta (BoV)** - CSV statements
 
 ## Features
 
@@ -26,6 +31,8 @@ pip install -r requirements.txt
 
 ## Usage
 
+### For Wamo (Wise) PDF Statements
+
 Run the script with a Wamo PDF statement:
 
 ```bash
@@ -38,23 +45,42 @@ Or specify a custom output filename:
 python wamo_categorization.py statement.pdf output.xlsx
 ```
 
+### For Bank of Valletta CSV Statements
+
+Run the script with a BoV CSV export:
+
+```bash
+python bov_categorization.py statement.csv
+```
+
+Or specify a custom output filename:
+
+```bash
+python bov_categorization.py statement.csv output.xlsx
+```
+
 ## Output
 
-The script generates an Excel file with three sheets:
+Both scripts generate an Excel file with three sheets:
 
-1. **SOURCE** - Raw transaction data extracted from the PDF
-2. **INCOMING** - Positive transactions (income) with categorization
-3. **OUTGOING** - Negative transactions (expenses) with categorization
+1. **SOURCE** - Raw transaction data (formatted as Excel table)
+2. **INCOMING** - Positive transactions (income) with categorization (formatted as Excel table)
+3. **OUTGOING** - Negative transactions (expenses) with categorization (formatted as Excel table)
 
 Each sheet includes:
-- Date
-- Detail (transaction description)
-- Amount
-- Type (auto-categorized transaction type)
-- Invoice (extracted invoice numbers)
-- Counterparty (extracted payee/payer names)
+- **Date** - Transaction date (formatted as yyyy-mm-dd)
+- **Detail** - Transaction description
+- **Amount** - Transaction amount (formatted as currency with proper number formatting)
+- **Type** - Auto-categorized transaction type
+- **Invoice** - Extracted invoice numbers
+- **Counterparty** - Extracted payee/payer names
 
-Rows are color-coded by month for easy visual grouping.
+### Formatting Features
+- All data ranges are formatted as proper Excel tables with filters
+- Rows are color-coded by month for easy visual grouping (12 distinct colors)
+- Date column: yyyy-mm-dd format
+- Amount column: Currency format with thousands separators (#,##0.00)
+- Auto-adjusted column widths for optimal readability
 
 ## Transaction Categories
 
@@ -71,7 +97,9 @@ The script automatically recognizes and categorizes:
 - Utility payments
 - And more...
 
-## Example
+## Examples
+
+### Wamo Statement Processing
 
 ```bash
 python wamo_categorization.py statement_7068982_EUR_2025-06-01_2025-09-30.pdf output.xlsx
@@ -98,6 +126,34 @@ The script successfully:
 - Categorized all transactions by type
 - Extracted counterparty information (merchants, recipients)
 - Applied month-based color coding for easy visual analysis
+
+### Bank of Valletta Statement Processing
+
+```bash
+python bov_categorization.py statement_BOV.csv bov_output.xlsx
+```
+
+Output:
+```
+Processing: statement_BOV.csv
+Extracting transactions from CSV...
+Found 338 transactions
+Categorizing transactions...
+  Incoming: 169 transactions
+  Outgoing: 169 transactions
+Exporting to Excel...
+Excel file created: bov_output.xlsx
+
+Complete! Output saved to: bov_output.xlsx
+```
+
+The script successfully:
+- Extracted 338 transactions from BoV CSV export
+- Identified 169 incoming transactions (cheque deposits, SCT transfers, payments received)
+- Identified 169 outgoing transactions (cheques, transfers, fees, 24x7 payments)
+- Categorized all transactions by type
+- Extracted counterparty information from transaction details
+- Created formatted Excel tables with month-based color coding
 
 ## Requirements
 
