@@ -31,32 +31,44 @@ pip install -r requirements.txt
 
 ## Usage
 
-### For Wamo (Wise) PDF Statements
+### Quick Start (Easiest Method)
 
-Run the script with a Wamo PDF statement:
+**Option 1: Double-click the batch file (Windows)**
+
+Simply double-click `Categorize Statement.bat` and follow the prompts. The tool will:
+1. Let you browse for your statement file (PDF or CSV)
+2. Ask for an output filename
+3. Automatically detect and process your statement
+4. Open the result in Excel
+
+**Option 2: Run the unified script**
 
 ```bash
-python wamo_categorization.py statement.pdf
+python categorize_statement.py
 ```
 
-Or specify a custom output filename:
+The interactive tool provides:
+- File browser dialog (GUI) to select your statement
+- Or manual file path entry
+- Automatic detection of file type (PDF/CSV)
+- Custom output filename selection
+- Summary before processing
+- Option to automatically open the result
+
+### Advanced Usage (Direct Scripts)
+
+You can also run the individual scripts directly:
+
+**For Wamo (Wise) PDF Statements:**
 
 ```bash
-python wamo_categorization.py statement.pdf output.xlsx
+python wamo_categorization.py statement.pdf [output.xlsx]
 ```
 
-### For Bank of Valletta CSV Statements
-
-Run the script with a BoV CSV export:
+**For Bank of Valletta CSV Statements:**
 
 ```bash
-python bov_categorization.py statement.csv
-```
-
-Or specify a custom output filename:
-
-```bash
-python bov_categorization.py statement.csv output.xlsx
+python bov_categorization.py statement.csv [output.xlsx]
 ```
 
 ## Output
