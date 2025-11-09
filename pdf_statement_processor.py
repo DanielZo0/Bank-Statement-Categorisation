@@ -86,6 +86,11 @@ def extract_transactions_from_pdf(pdf_path: str) -> pd.DataFrame:
                         clean_line = re.sub(r'Transaction:\s*[A-Z_]+-[a-f0-9-]{36}', 'Transaction: [ID]', rest_of_line)
                         clean_line = re.sub(r'Transaction:\s*[A-Z]+-\d{10}', 'Transaction: [ID]', clean_line)
                         
+                        # Fix merged amounts: references ending with digits directly followed by amounts
+                        # E.g., "F-21925-101,942.14" → "F-21925-10 1,942.14"
+                        # This handles cases where reference numbers end with digits and merge with comma-formatted amounts
+                        clean_line = re.sub(r'(-\d+)(\d{1,3},\d{3}\.\d{2})', r'\1 \2', clean_line)
+                        
                         # Try to extract amounts from the line
                         # Look for numbers at the end (balance and possibly incoming/outgoing)
                         # Pattern: ...description... -123.45 1,234.56 OR ...description... 1,234.56
