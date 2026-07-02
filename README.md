@@ -35,8 +35,8 @@ See `EXECUTABLE_README.txt` for detailed executable usage instructions.
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/DanielZo0/Bank-Statement-Categorization.git
-cd Bank-Statement-Categorization
+git clone https://github.com/DanielZo0/Bank-Statement-Categorisation.git
+cd Bank-Statement-Categorisation
 ```
 
 2. Install required dependencies:
@@ -132,7 +132,7 @@ The script automatically recognizes and categorizes:
 
 ### Batch Processing Multiple Files
 
-1. Double-click `Categorize Statement.bat`
+1. Double-click `Process Statements.bat`
 2. Select multiple statement files (hold Ctrl)
 3. Watch the tool process each file:
 
@@ -257,4 +257,3 @@ MIT License
 ## Author
 
 Daniel Zo
-

@@ -3,6 +3,7 @@ Common categorization functions shared across all bank statement processors
 """
 
 import re
+import math
 from datetime import datetime
 from typing import Optional
 
@@ -21,7 +22,15 @@ def parse_number(val: str) -> float:
     Parse number from various formats (EU/US, with currency symbols, parentheses, etc.)
     Handles: €1,234.56, (123.45), 123-, 1.234,56, "1,234.56"
     """
-    if not val or not isinstance(val, str):
+    if val is None:
+        return 0.0
+
+    if isinstance(val, (int, float)):
+        if isinstance(val, float) and math.isnan(val):
+            return 0.0
+        return float(val)
+
+    if not isinstance(val, str) or not val:
         return 0.0
     
     val = str(val).strip().strip('"')
@@ -361,4 +370,3 @@ def limit_length(text: str, max_len: int = 26) -> str:
     if not text:
         return ""
     return text[:max_len] if len(text) > max_len else text
-
